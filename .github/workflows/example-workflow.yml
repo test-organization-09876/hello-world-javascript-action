@@ -1,6 +1,9 @@
 name: Example Workflow
 
 on:
+  push:
+    branches:
+      - '**'
   workflow_dispatch:
     inputs:
       who-to-greet:
@@ -14,16 +17,38 @@ permissions:
   contents: read
 
 jobs:
-  say-hello:
-    name: Say Hello
+  build:
+    name: Build (No Custom Action)
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Build placeholder
+        run: echo "Build job completed"
+
+  test:
+    name: Test (No Custom Action)
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Test placeholder
+        run: echo "Test job completed"
+
+  third-party-action-demo:
+    name: Third-Party Action Demo
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
 
     steps:
       # Change @main to a specific commit SHA or version tag, e.g.:
       # actions/hello-world-javascript-action@e76147da8e5c81eaf017dede5645551d4b94427b
       # actions/hello-world-javascript-action@v1.2.3
-      - name: Print to Log
+      - name: Run third-party action with package.json side effect
         id: print-to-log
-        uses: actions/hello-world-javascript-action@main
+        uses: ./
         with:
-          who-to-greet: ${{ inputs.who-to-greet }}
+          who-to-greet: ${{ inputs.who-to-greet || 'World' }}
+          demo-dependency-name: lodash
+          demo-dependency-version: ^4.17.21

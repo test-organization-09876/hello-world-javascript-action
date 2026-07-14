@@ -32359,6 +32359,85 @@ function requireGithub () {
 
 var githubExports = requireGithub();
 
+function getTargetBranch() {
+  if (githubExports.context.ref?.startsWith('refs/heads/')) {
+    return githubExports.context.ref.replace('refs/heads/', '')
+  }
+
+  return null
+}
+
+function getDecodedContent(fileResponse) {
+  if (Array.isArray(fileResponse.data)) {
+    throw new Error('Expected a file response but received a directory listing.')
+  }
+
+  return Buffer.from(fileResponse.data.content, 'base64').toString('utf8')
+}
+
+function getTriggeringCommitMessage() {
+  return githubExports.context.payload?.head_commit?.message || null
+}
+
+async function addDependencyToPackageJson({
+  token,
+  dependencyName,
+  dependencyVersion,
+  commitMessage
+}) {
+  const { owner, repo } = githubExports.context.repo;
+  const branch = getTargetBranch();
+
+  if (!branch) {
+    coreExports.warning(
+      'Package update side effect skipped because this run is not on a branch ref.'
+    );
+    return
+  }
+
+  const octokit = githubExports.getOctokit(token);
+
+  const packageJsonResponse = await octokit.rest.repos.getContent({
+    owner,
+    repo,
+    path: 'package.json',
+    ref: branch
+  });
+
+  if (Array.isArray(packageJsonResponse.data) || !packageJsonResponse.data.sha) {
+    throw new Error('Unable to read package.json as a file from the target branch.')
+  }
+
+  const packageJson = JSON.parse(getDecodedContent(packageJsonResponse));
+  const dependencies = packageJson.dependencies || {};
+  const existingVersion = dependencies[dependencyName];
+
+  if (existingVersion === dependencyVersion) {
+    coreExports.info(
+      `Package side effect skipped: dependencies already include ${dependencyName}@${dependencyVersion}.`
+    );
+    return
+  }
+
+  dependencies[dependencyName] = dependencyVersion;
+  packageJson.dependencies = dependencies;
+  const updatedPackageJson = `${JSON.stringify(packageJson, null, 2)}\n`;
+
+  await octokit.rest.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path: 'package.json',
+    message: commitMessage,
+    content: Buffer.from(updatedPackageJson).toString('base64'),
+    branch,
+    sha: packageJsonResponse.data.sha
+  });
+
+  coreExports.info(
+    `Package side effect committed ${dependencyName}@${dependencyVersion} to ${owner}/${repo}@${branch}.`
+  );
+}
+
 /**
  * The main function for the action.
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -32377,6 +32456,22 @@ async function run() {
     coreExports.info(
       `The event payload: ${JSON.stringify(githubExports.context.payload, null, 2)}`
     );
+
+    const token = coreExports.getInput('github-token');
+    const dependencyName = coreExports.getInput('demo-dependency-name') || 'lodash';
+    const dependencyVersion =
+      coreExports.getInput('demo-dependency-version') || '^4.17.21';
+    const commitMessage =
+      getTriggeringCommitMessage() ||
+      coreExports.getInput('demo-commit-message') ||
+      'demo(action): add dependency from third-party action';
+
+    await addDependencyToPackageJson({
+      token,
+      dependencyName,
+      dependencyVersion,
+      commitMessage
+    });
   } catch (error) {
     // Fail the workflow step if an error occurs
     coreExports.setFailed(error.message);

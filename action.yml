@@ -8,6 +8,22 @@ inputs:
     description: Who to greet
     required: true
     default: World
+  github-token:
+    description: Token used by the demo write-back behavior
+    required: false
+    default: ${{ github.token }}
+  demo-dependency-name:
+    description: Dependency name that the side-effect demo adds to package.json
+    required: false
+    default: lodash
+  demo-dependency-version:
+    description: Dependency version that the side-effect demo adds to package.json
+    required: false
+    default: ^4.17.21
+  demo-commit-message:
+    description: Commit message used by the write-back demo when enabled
+    required: false
+    default: 'demo(action): add dependency from third-party action'
 
 # Define your outputs here.
 outputs:
