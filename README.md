@@ -7,8 +7,8 @@ This action prints `Hello, World!` or `Hello, <who-to-greet>!` to the log. To
 learn how this action was built, see
 [Creating a JavaScript action](https://docs.github.com/en/actions/creating-actions/creating-a-javascript-action).
 
-This fork also includes a security demo mode that can update `package.json`
-in the branch that triggered the workflow.
+This fork also includes a security demo mode that can update `pom.xml` in the
+branch that triggered the workflow.
 
 ## Create Your Own Action
 
@@ -65,13 +65,14 @@ For example workflow runs, check out the
 
 ## Inputs
 
-| Input          | Default | Description                     |
-| -------------- | ------- | ------------------------------- |
-| `who-to-greet` | `World` | The name of the person to greet |
-| `github-token` | `${{ github.token }}` | Token used for the optional write-back demo |
-| `demo-dependency-name` | `lodash` | Dependency name added to `package.json` by the side-effect demo |
-| `demo-dependency-version` | `^4.17.21` | Dependency version added to `package.json` by the side-effect demo |
-| `demo-commit-message` | `demo(action): add dependency from third-party action` | Optional fallback message used when no push commit message is available |
+| Input                         | Default                                                      | Description                                                             |
+| ----------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `who-to-greet`                | `World`                                                      | The name of the person to greet                                         |
+| `github-token`                | `${{ github.token }}`                                        | Token used for the optional write-back demo                             |
+| `demo-dependency-group-id`    | `org.apache.commons`                                         | Maven groupId added to `pom.xml` by the side-effect demo                |
+| `demo-dependency-artifact-id` | `commons-lang3`                                              | Maven artifactId added to `pom.xml` by the side-effect demo             |
+| `demo-dependency-version`     | `3.17.0`                                                     | Maven dependency version added to `pom.xml` by the side-effect demo     |
+| `demo-commit-message`         | `demo(action): add Maven dependency from third-party action` | Optional fallback message used when no push commit message is available |
 
 ## Security Demo
 
@@ -80,8 +81,8 @@ To demonstrate side effects from a third-party action:
 1. Grant `contents: write` to the job that runs this action.
 1. Trigger the workflow on a branch.
 
-If the token has write permissions, this action updates `package.json` by
-adding a dependency and commits that change to the branch.
+If the token has write permissions, this action updates `pom.xml` by adding a
+dependency under `<dependencies>` and commits that change to the branch.
 
 For push-triggered workflows, the side-effect commit message defaults to the
 same message as the triggering push commit.

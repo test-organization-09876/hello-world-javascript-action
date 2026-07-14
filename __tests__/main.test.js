@@ -39,13 +39,22 @@ describe('action', () => {
     )
   })
 
-  it('commits a package.json dependency side effect', async () => {
-    const packageJson = {
-      name: 'hello-world-javascript-action',
-      dependencies: {
-        '@actions/core': '^2.0.2'
-      }
-    }
+  it('commits a pom.xml dependency side effect', async () => {
+    const pomXml = `<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>hello-world</artifactId>
+  <version>1.0.0</version>
+  <dependencies>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.13</version>
+    </dependency>
+  </dependencies>
+</project>
+`
 
     const octokit = {
       rest: {
@@ -53,9 +62,7 @@ describe('action', () => {
           getContent: jest.fn().mockResolvedValue({
             data: {
               sha: 'abc123',
-              content: Buffer.from(JSON.stringify(packageJson, null, 2)).toString(
-                'base64'
-              )
+              content: Buffer.from(pomXml).toString('base64')
             }
           }),
           createOrUpdateFileContents: jest.fn()
@@ -72,12 +79,16 @@ describe('action', () => {
         return 'ghs_demo'
       }
 
-      if (name === 'demo-dependency-name') {
-        return 'lodash'
+      if (name === 'demo-dependency-group-id') {
+        return 'junit'
+      }
+
+      if (name === 'demo-dependency-artifact-id') {
+        return 'junit'
       }
 
       if (name === 'demo-dependency-version') {
-        return '^4.17.21'
+        return '4.13.2'
       }
 
       if (name === 'demo-commit-message') {
@@ -96,12 +107,22 @@ describe('action', () => {
       expect.objectContaining({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
-        path: 'package.json',
+        path: 'pom.xml',
         branch: 'main',
         message: 'demo(action): side effect',
         sha: 'abc123'
       })
     )
+
+    const [request] =
+      octokit.rest.repos.createOrUpdateFileContents.mock.calls[0]
+    const updatedPomXml = Buffer.from(request.content, 'base64').toString(
+      'utf8'
+    )
+
+    expect(updatedPomXml).toContain('<groupId>junit</groupId>')
+    expect(updatedPomXml).toContain('<artifactId>junit</artifactId>')
+    expect(updatedPomXml).toContain('<version>4.13.2</version>')
   })
 
   it('sets a failed status', async () => {

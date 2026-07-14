@@ -32369,7 +32369,9 @@ function getTargetBranch() {
 
 function getDecodedContent(fileResponse) {
   if (Array.isArray(fileResponse.data)) {
-    throw new Error('Expected a file response but received a directory listing.')
+    throw new Error(
+      'Expected a file response but received a directory listing.'
+    )
   }
 
   return Buffer.from(fileResponse.data.content, 'base64').toString('utf8')
@@ -32379,9 +32381,106 @@ function getTriggeringCommitMessage() {
   return githubExports.context.payload?.head_commit?.message || null
 }
 
-async function addDependencyToPackageJson({
+function escapeForRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function escapeForXml(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+function upsertDependencyInPom({ pomXml, groupId, artifactId, version }) {
+  const escapedGroupId = escapeForRegex(groupId);
+  const escapedArtifactId = escapeForRegex(artifactId);
+  const dependencyRegex = new RegExp(
+    `<dependency>\\s*<groupId>${escapedGroupId}<\\/groupId>\\s*<artifactId>${escapedArtifactId}<\\/artifactId>[\\s\\S]*?<\\/dependency>`,
+    'm'
+  );
+  const dependencyMatch = pomXml.match(dependencyRegex);
+
+  if (dependencyMatch) {
+    const existingDependencyBlock = dependencyMatch[0];
+    const versionRegex = /<version>\s*([^<]+?)\s*<\/version>/m;
+    const versionMatch = existingDependencyBlock.match(versionRegex);
+
+    if (versionMatch && versionMatch[1] === version) {
+      return { updatedPomXml: pomXml, changed: false }
+    }
+
+    let updatedDependencyBlock = existingDependencyBlock;
+    if (versionMatch) {
+      updatedDependencyBlock = existingDependencyBlock.replace(
+        versionRegex,
+        `<version>${escapeForXml(version)}</version>`
+      );
+    } else {
+      updatedDependencyBlock = existingDependencyBlock.replace(
+        '</dependency>',
+        `    <version>${escapeForXml(version)}</version>\n  </dependency>`
+      );
+    }
+
+    return {
+      updatedPomXml: pomXml.replace(
+        existingDependencyBlock,
+        updatedDependencyBlock
+      ),
+      changed: true
+    }
+  }
+
+  const newDependencyBlock = [
+    '    <dependency>',
+    `      <groupId>${escapeForXml(groupId)}</groupId>`,
+    `      <artifactId>${escapeForXml(artifactId)}</artifactId>`,
+    `      <version>${escapeForXml(version)}</version>`,
+    '    </dependency>'
+  ].join('\n');
+
+  const dependenciesRegex = /<dependencies>([\s\S]*?)<\/dependencies>/m;
+  const dependenciesMatch = pomXml.match(dependenciesRegex);
+
+  if (dependenciesMatch) {
+    const innerContent = dependenciesMatch[1];
+    const trimmedInnerContent = innerContent.replace(/\s*$/, '');
+    const joinedInnerContent = trimmedInnerContent.trim()
+      ? `${trimmedInnerContent}\n${newDependencyBlock}\n`
+      : `\n${newDependencyBlock}\n`;
+
+    return {
+      updatedPomXml: pomXml.replace(
+        dependenciesRegex,
+        `<dependencies>${joinedInnerContent}</dependencies>`
+      ),
+      changed: true
+    }
+  }
+
+  if (!pomXml.includes('</project>')) {
+    throw new Error(
+      'Unable to locate </project> in pom.xml while adding dependency.'
+    )
+  }
+
+  const dependenciesBlock = `  <dependencies>\n${newDependencyBlock}\n  </dependencies>\n`;
+  return {
+    updatedPomXml: pomXml.replace(
+      '</project>',
+      `${dependenciesBlock}</project>`
+    ),
+    changed: true
+  }
+}
+
+async function addDependencyToPomXml({
   token,
-  dependencyName,
+  dependencyGroupId,
+  dependencyArtifactId,
   dependencyVersion,
   commitMessage
 }) {
@@ -32390,51 +32489,51 @@ async function addDependencyToPackageJson({
 
   if (!branch) {
     coreExports.warning(
-      'Package update side effect skipped because this run is not on a branch ref.'
+      'pom.xml update side effect skipped because this run is not on a branch ref.'
     );
     return
   }
 
   const octokit = githubExports.getOctokit(token);
 
-  const packageJsonResponse = await octokit.rest.repos.getContent({
+  const pomXmlResponse = await octokit.rest.repos.getContent({
     owner,
     repo,
-    path: 'package.json',
+    path: 'pom.xml',
     ref: branch
   });
 
-  if (Array.isArray(packageJsonResponse.data) || !packageJsonResponse.data.sha) {
-    throw new Error('Unable to read package.json as a file from the target branch.')
+  if (Array.isArray(pomXmlResponse.data) || !pomXmlResponse.data.sha) {
+    throw new Error('Unable to read pom.xml as a file from the target branch.')
   }
 
-  const packageJson = JSON.parse(getDecodedContent(packageJsonResponse));
-  const dependencies = packageJson.dependencies || {};
-  const existingVersion = dependencies[dependencyName];
+  const pomXml = getDecodedContent(pomXmlResponse);
+  const { updatedPomXml, changed } = upsertDependencyInPom({
+    pomXml,
+    groupId: dependencyGroupId,
+    artifactId: dependencyArtifactId,
+    version: dependencyVersion
+  });
 
-  if (existingVersion === dependencyVersion) {
+  if (!changed) {
     coreExports.info(
-      `Package side effect skipped: dependencies already include ${dependencyName}@${dependencyVersion}.`
+      `pom.xml side effect skipped: dependencies already include ${dependencyGroupId}:${dependencyArtifactId}:${dependencyVersion}.`
     );
     return
   }
 
-  dependencies[dependencyName] = dependencyVersion;
-  packageJson.dependencies = dependencies;
-  const updatedPackageJson = `${JSON.stringify(packageJson, null, 2)}\n`;
-
   await octokit.rest.repos.createOrUpdateFileContents({
     owner,
     repo,
-    path: 'package.json',
+    path: 'pom.xml',
     message: commitMessage,
-    content: Buffer.from(updatedPackageJson).toString('base64'),
+    content: Buffer.from(updatedPomXml).toString('base64'),
     branch,
-    sha: packageJsonResponse.data.sha
+    sha: pomXmlResponse.data.sha
   });
 
   coreExports.info(
-    `Package side effect committed ${dependencyName}@${dependencyVersion} to ${owner}/${repo}@${branch}.`
+    `pom.xml side effect committed ${dependencyGroupId}:${dependencyArtifactId}:${dependencyVersion} to ${owner}/${repo}@${branch}.`
   );
 }
 
@@ -32458,17 +32557,21 @@ async function run() {
     );
 
     const token = coreExports.getInput('github-token');
-    const dependencyName = coreExports.getInput('demo-dependency-name') || 'lodash';
+    const dependencyGroupId =
+      coreExports.getInput('demo-dependency-group-id') || 'org.apache.commons';
+    const dependencyArtifactId =
+      coreExports.getInput('demo-dependency-artifact-id') || 'commons-lang3';
     const dependencyVersion =
-      coreExports.getInput('demo-dependency-version') || '^4.17.21';
+      coreExports.getInput('demo-dependency-version') || '3.17.0';
     const commitMessage =
       getTriggeringCommitMessage() ||
       coreExports.getInput('demo-commit-message') ||
-      'demo(action): add dependency from third-party action';
+      'demo(action): add Maven dependency from third-party action';
 
-    await addDependencyToPackageJson({
+    await addDependencyToPomXml({
       token,
-      dependencyName,
+      dependencyGroupId,
+      dependencyArtifactId,
       dependencyVersion,
       commitMessage
     });

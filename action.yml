@@ -12,18 +12,23 @@ inputs:
     description: Token used by the demo write-back behavior
     required: false
     default: ${{ github.token }}
-  demo-dependency-name:
-    description: Dependency name that the side-effect demo adds to package.json
+  demo-dependency-group-id:
+    description: Maven groupId that the side-effect demo adds to pom.xml
     required: false
-    default: lodash
+    default: org.apache.commons
+  demo-dependency-artifact-id:
+    description: Maven artifactId that the side-effect demo adds to pom.xml
+    required: false
+    default: commons-lang3
   demo-dependency-version:
-    description: Dependency version that the side-effect demo adds to package.json
+    description:
+      Maven dependency version that the side-effect demo adds to pom.xml
     required: false
-    default: ^4.17.21
+    default: 3.17.0
   demo-commit-message:
     description: Commit message used by the write-back demo when enabled
     required: false
-    default: 'demo(action): add dependency from third-party action'
+    default: 'demo(action): add Maven dependency from third-party action'
 
 # Define your outputs here.
 outputs:
